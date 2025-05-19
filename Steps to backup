@@ -1,0 +1,121 @@
+Step 1: Create an S3 Bucket and IAM User
+
+1. Create an S3 bucket:
+           
+BUCKET=velaro-backup
+REGION=us-east-1
+aws s3api create-bucket \
+    --bucket $BUCKET \
+    --region $REGION \
+    --create-bucket-configuration LocationConstraint=$REGION
+
+NOTE: us-east-1 does not support a LocationConstraint. If your region is us-east-1, omit the bucket configuration:
+
+aws s3api create-bucket \
+    --bucket $BUCKET \
+    --region us-east-1
+
+2. Create an IAM user for Velero:
+          
+aws iam create-user --user-name velero
+{
+    "User": {
+        "Path": "/",
+        "UserName": "velero",
+        "UserId": "AIDAS6J7QTZ6QHGVU6W4T",
+        "Arn": "arn:aws:iam::202533543549:user/velero",
+        "CreateDate": "2025-05-19T06:37:19+00:00"
+    }
+}
+3. Attach the following IAM policy to the user:
+     
+ aws iam put-user-policy \
+  --user-name velero \
+  --policy-name VeleroS3Access \
+  --policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "s3:ListBucket"
+        ],
+        "Resource": [
+          "arn:aws:s3:::velaro-backup"
+        ]
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject"
+        ],
+        "Resource": [
+          "arn:aws:s3:::velaro-backup/*"
+        ]
+      }
+    ]
+  }'
+
+4. Generate access keys:
+
+   
+aws iam create-access-key --user-name velero
+{
+    "AccessKey": {
+        "UserName": "velero",
+        "AccessKeyId": "123",
+        "Status": "Active",
+        "SecretAccessKey": "123",
+        "CreateDate": "2025-05-19T06:41:03+00:00"
+    }
+}
+
+
+Step 2: Prepare Velero Credentials File
+
+vi credentials-velero
+
+[default]
+aws_access_key_id=YOUR_ACCESS_KEY_ID
+aws_secret_access_key=YOUR_SECRET_ACCESS_KEY
+
+
+
+Step 3: Install Velero into the Cluster
+
+curl -L https://github.com/vmware-tanzu/velero/releases/download/v1.13.0/velero-v1.13.0-linux-amd64.tar.gz -o velero.tar.gz
+tar -xvf velero.tar.gz
+sudo mv velero-v1.13.0-linux-amd64/velero /usr/local/bin/
+
+
+Use the Velero CLI to install with AWS S3 as the backend:
+
+velero install \
+    --provider aws \
+    --plugins velero/velero-plugin-for-aws:v1.8.0 \
+    --bucket my-velero-backups \
+    --secret-file ./credentials-velero \
+    --backup-location-config region=us-east-1 \
+    --snapshot-location-config region=us-east-1
+
+
+✅ Step 4: Confirm Installation
+
+kubectl get pods -n velero
+
+You should see something like: velero-xxxxx-yyyy Running
+Check logs: kubectl logs deployment/velero -n velero
+
+
+🎒 Step 5: Create a Backup
+
+velero backup create demo-backup --include-namespaces expense
+
+Check status: velero backup get
+
+🔁 Step 6: Restore a Backup
+
+velero restore create --from-backup demo-backup
+
